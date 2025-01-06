@@ -1,0 +1,51 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+```{r}
+# Define the required libraries
+libs <- c("tidyverse", "ggtext", "patchwork", "cowplot", "gridExtra", "lubridate", "ggthemes")
+
+# Check if libraries are installed; install missing ones
+installed_libs <- libs %in% rownames(installed.packages())
+
+if (any(installed_libs == FALSE)) {
+    install.packages(libs[!installed_libs])
+} else {
+    print("All the libraries already installed")
+}
+
+# Load the libraries
+library(tidyverse)
+library(ggtext)
+library(patchwork)
+library(cowplot)
+library(gridExtra)
+library(lubridate)
+library(ggthemes)
+```
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
+
+```{r}
+# Load the Chicago dataset
+chic <- readr::read_csv("rolling_stone.csv")
+
+# Display the first few rows
+head(chic)
+
+# chic %>% mutate(diff_birt_debut = debut_album_release_year - artist_birth_year_sum) %>% filter(diff_birt_debut > 0) %>%  group_by(artist_gender) %>% summarize(mean(diff_birt_debut))
+
+# chic %>% filter(artist_member_count > 1) %>%  select(clean_name, artist_member_count) %>% distinct() %>% arrange(clean_name)
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
