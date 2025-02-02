@@ -7,7 +7,8 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute
 
 ```{r}
 # Define the required libraries
-libs <- c("tidyverse", "ggtext", "patchwork", "cowplot", "gridExtra", "lubridate", "ggthemes")
+libs <- c("tidyverse", "ggtext", "patchwork", "cowplot", "gridExtra", "lubridate", "ggthemes", "tm", "SnowballC", "wordcloud", "RColorBrewer", "RCurl", "XML", "tidytext", "viridis")
+
 
 # Check if libraries are installed; install missing ones
 installed_libs <- libs %in% rownames(installed.packages())
@@ -20,32 +21,377 @@ if (any(installed_libs == FALSE)) {
 
 # Load the libraries
 library(tidyverse)
+library(tidytext)
 library(ggtext)
 library(patchwork)
 library(cowplot)
 library(gridExtra)
 library(lubridate)
 library(ggthemes)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(RCurl)
+library(NLP)
+library(XML)
+library(viridis)
+library(gganimate)   # Animations for ggplot
+library(transformr)  # Helps with transitions
+
 ```
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
+1.  **clean_name** (Cleaned name of the artist / group)
+
+2.  **album** (album name)
+
+3.  **rank_2003**, **rank_2012**, and **rank_2020** (Rank of the album in the respective years. NA if album not released yet or not in top 500)
+
+4.  **differential** (2020-2003 ranking differential. Negative if it went down in the chart and positive if it went up)
+
+5.  **release_year** (Release Year)
+
+6.  **genre** (Album Genre. NA if uncategorized)
+
+7.  **weeks_on_billboard** (Weeks on Billboard)
+
+8.  **peak_billboard_position** (Peak Billboard Position)
+
+9.  **spotify_popularity** (Spotify Popularity on a 1-100 scale based on commercial success. NA if not on Spotify)
+
+10. **spotify_url** (Spotify URL. NA if not on Spotify)
+
+11. **artist_member_count** (Number of artists in the group)
+
+12. **artist_gender** (Gender of the artist(s). Male/Female if it’s a mized group)
+
+13. **artist_birth_year_sum** (Sum of the artists birth year)
+
+14. **debut_album_release_year** (Debut Album Release Year)
+
+15. **ave_age_at_top_500** (Average age at top 500 Album)
+
+16. **years_between** (Years Between Debut and Top 500 Album)
+
+17. **album_id** (Album ID. NOS at the beginning of the ID if not on Spotify).
 
 ```{r}
-# Load the Chicago dataset
-chic <- readr::read_csv("rolling_stone.csv")
+roll_stone <- readr::read_csv("rolling_stone.csv")
+
+roll_stone <- roll_stone %>% mutate(genre = str_to_title(genre))
 
 # Display the first few rows
-head(chic)
+head(roll_stone)
 
-# chic %>% mutate(diff_birt_debut = debut_album_release_year - artist_birth_year_sum) %>% filter(diff_birt_debut > 0) %>%  group_by(artist_gender) %>% summarize(mean(diff_birt_debut))
+```
 
-# chic %>% filter(artist_member_count > 1) %>%  select(clean_name, artist_member_count) %>% distinct() %>% arrange(clean_name)
+At first we need to remove rows where genre is NA and group by genre. After doing this, we need to find average from column spotify_popularity. The range is 0 - 100 and the buggest the number, more popular the album is.
+
+```{r}
+# top genres by avg spotify popularity
+
+roll_stone %>%
+  filter(!is.na(genre)) %>%
+  group_by(genre) %>%
+  summarise(avg_popularity = mean(spotify_popularity, na.rm = TRUE)) %>% 
+  arrange(desc(avg_popularity))
+```
+
+At first we need to calculate average age of artists at the moment of debut. After that we filter the data, so that we only take bands, which has genre. We group by genre and find average value.
+
+```{r}
+# average age of band members for each genre at the moment of debut
+
+roll_stone %>%
+  mutate(avg_age = (release_year - (artist_birth_year_sum / artist_member_count))) %>%
+  filter(artist_member_count > 1 & !is.na(genre)) %>% 
+  group_by(genre) %>%
+  summarise(avg_band_age = mean(avg_age, na.rm = TRUE)) %>%
+  arrange(desc(avg_band_age)) 
+```
+
+To count the numbers of albums in each rank by genre we needed to transform columns like "rank_2003" to longer data. Name of the column transformed to "rank_year" and vaues were added to column "rank". After that we needed to filter out genres and rank, group by it and summarize.
+
+```{r}
+# number of albums from each genre in each rank
+
+number_of_albums_from_each_genre_in_each_rank <- roll_stone %>%
+    pivot_longer(cols = starts_with("rank_"),
+               names_to = "rank_year",
+               values_to = "rank") %>%
+  filter(!is.na(rank) & !is.na(genre)) %>%
+  group_by(genre, rank_year) %>% 
+  summarise(album_count = n(), .groups = "drop") 
+
+number_of_albums_from_each_genre_in_each_rank
+```
+
+```{r}
+# heatmap of rank distribution by genre and year
+
+ggplot(number_of_albums_from_each_genre_in_each_rank,
+       aes(x = rank_year, y = genre, fill = album_count)) +
+  
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_distiller(palette = "BuPu", name = "Album Count", direction = 1, 
+                       breaks = seq(0, max(number_of_albums_from_each_genre_in_each_rank$album_count) - 10, by = 10)) +
+  theme_minimal() +
+  labs(title = "Number of Albums in Ranking",
+       x = "Ranking Year",
+       y = "Genre") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size = 14),
+        legend.position = "right")
+```
+
+```{r}
+# word cloud
+
+album_words <- roll_stone %>%
+  select(album) %>% 
+  tidytext::unnest_tokens(word, album) %>%  
+  anti_join(stop_words, by = "word") %>% 
+  count(word, sort = TRUE)
+
+album_words %>%
+  arrange(desc(n)) %>% print()
+
+wordcloud(
+  words = album_words$word, 
+  freq = album_words$n, 
+  min.freq = 4,
+  max.words = 50,
+  random.order = FALSE,
+  colors = brewer.pal(8, "Reds")
+)
+```
+
+```{r}
+# peak position by genre
+roll_stone %>%
+  filter(!is.na(rank_2003) & !is.na(rank_2020)) %>%
+  arrange(desc(differential)) %>% 
+  select(clean_name, album, rank_2003, rank_2020, differential) %>%
+  slice_head(n = 10)
+top_improved
 
 
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+```{r}
+# top 10 albums that improved the most (positive) and dropped the most (negative)
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+top_improved <- roll_stone %>%
+  filter(!is.na(rank_2003) & !is.na(rank_2020)) %>%
+  arrange(desc(differential)) %>% 
+  select(clean_name, album, rank_2003, rank_2020, differential) %>%
+  slice_head(n = 10)
+top_improved
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+top_dropped <- roll_stone %>%
+  filter(!is.na(rank_2003) & !is.na(rank_2020)) %>%
+  arrange(differential) %>%
+  select(clean_name, album, rank_2003, rank_2020, differential) %>%
+  slice_head(n = 10)
+top_dropped
+
+```
+
+```{r}
+# sth abt albums w numbers/special chars in name (% of all albums) in top charts
+
+special_characters <- "[!@#$%^&*()_+={}|:;\"<>?/~`\\]"
+
+roll_stone %>%
+  filter(grepl(special_characters, album)) %>%
+  select(album)             
+```
+
+```{r}
+# albums that placed in top 25 in all three years
+roll_stone %>%
+  filter(rank_2003 <= 25 & rank_2012 <= 25 & rank_2020 <= 25) %>%
+  select(clean_name, album, genre, rank_2003, rank_2012, rank_2020)
+
+```
+
+## **Vizualizations**
+
+```{r}
+current_year <- 2025
+
+average_birthyear_by_genre_gender <- roll_stone %>%
+  filter(!is.na(artist_gender) & !is.na(genre)) %>%
+  mutate(birth_year = ifelse(artist_member_count > 1,
+                             artist_birth_year_sum / artist_member_count,
+                             artist_birth_year_sum)) %>% 
+  filter(!is.na(artist_gender) & !is.na(birth_year)) %>% 
+  mutate(age = (2003 - birth_year)) %>%  
+  group_by(genre, artist_gender) %>%
+  summarise(average_birthyear = mean(birth_year, na.rm = TRUE), 
+            average_age = mean(age, na.rm = TRUE),  
+            .groups = "drop")
+
+# Print the result
+print(average_birthyear_by_genre_gender)
+
+
+ggplot(average_birthyear_by_genre_gender, aes(x = genre, y = average_age, fill = artist_gender)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Average Age by Genre and Artist Gender",
+       x = "Genre", y = "Average Age") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("Female" = "lightpink", 
+                               "Male" = "lightblue", 
+                               "Male/Female" = "lightgreen"))
+
+
+ggplot(average_birthyear_by_genre_gender, aes(x = genre, y = average_age, color = artist_gender, group = artist_gender)) +
+  geom_line(linewidth = 1) + 
+  geom_point(size = 4) +  
+  scale_color_manual(values = c("Female" = "lightpink", "Male" = "lightblue", "Male/Female" = "lightgreen")) + 
+  labs(title = "Average Age by Genre and Artist Gender",
+       x = "Genre",
+       y = "Average Age",
+       color = "Artist Gender") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+debut_age_rank_data <- roll_stone %>%
+  filter(!is.na(artist_gender) & !is.na(genre)) %>%
+  mutate(birth_year = ifelse(artist_member_count > 1,
+                             artist_birth_year_sum / artist_member_count,
+                             artist_birth_year_sum)) %>%
+  pivot_longer(cols = starts_with("rank_"),
+               names_to = "rank_year",
+               values_to = "rank") %>%
+  filter(!is.na(birth_year) & !is.na(rank)) %>% 
+  mutate(rank_year = gsub("rank_", "", rank_year))
+
+plot <- ggplot(debut_age_rank_data, aes(x = rank, y = birth_year)) +
+  geom_point(alpha = 0.5, size = 3, aes(color = genre)) +
+  labs(title = "Correlation Between Average Birth Year and Rank by Year and Genre",
+       x = "Rank",
+       y = "Average Birth Year",
+       color = "Genre") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  facet_wrap(~rank_year, scales = "fixed") + 
+  scale_color_manual(values = c("#1E90FF", "#FF69B4", "#32CD32", "#FFA500", "#8A2BE2", 
+  "#FFD700", "#B22222", "#40E0D0", "#808080", "#DC143C", 
+  "#20B2AA", "#FF8C00", "#9932CC", "#4682B4", "#ADFF2F")) +
+  scale_y_continuous(limits = c(1910, 2000), 
+                     breaks = seq(1910, 2000, by = 10)) +  
+  scale_x_continuous(breaks = seq(0, 500, by = 100)) +
+  theme(strip.text = element_text(size = 12, face = "bold"))
+
+plot
+
+ggsave("larger_graph.jpg", plot = plot, width = 16, height = 10, dpi = 300)
+```
+
+```{r}
+# Prepare the data
+spotify_analysis <- roll_stone %>%
+  filter(!is.na(genre)) %>% 
+  mutate(has_spotify = ifelse(!is.na(spotify_url), "Has Spotify", "No Spotify")) %>%
+  group_by(genre, has_spotify) %>%
+  summarise(album_count = n(), .groups = "drop") %>%  
+  group_by(genre) %>%
+  mutate(percent = album_count / sum(album_count) * 100) 
+
+# Create the donut chart
+plot <- ggplot(spotify_analysis, aes(x = 2, y = percent, fill = has_spotify)) +
+  geom_bar(stat = "identity") +
+  coord_polar(theta = "y") +
+  geom_text(data = spotify_analysis %>% filter(has_spotify == "No Spotify" & percent > 0),
+            aes(label = paste0(round(percent, 1), "%"), y = percent / 2), 
+            size = 4) +
+  facet_wrap(~genre, nrow = 3) +
+  labs(title = "Spotify Presence by Genre", fill = "Spotify Status") +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        strip.text = element_text(size = 10, face = "bold"),
+        plot.title = element_text(hjust = 0.5, size = 14)) +
+  xlim(1.5, 2.5) + xlim(0.5, 2.5) +
+  scale_fill_brewer(palette = 2)
+plot
+
+ggsave("larger_graph.jpg", plot = plot, width = 16, height = 10, dpi = 300)
+```
+
+```{r}
+
+data <- roll_stone %>% 
+  filter(!is.na(genre) & !is.na(artist_gender)) %>% 
+  mutate(birth_year = ifelse(artist_member_count > 1,
+                             artist_birth_year_sum / artist_member_count,
+                             artist_birth_year_sum)) %>% 
+  mutate(debut_age = debut_album_release_year - birth_year) %>% 
+  mutate(artist_type = ifelse(artist_member_count > 1, "Group", "Solo")) %>% 
+  group_by(genre, artist_type) %>% 
+  summarise(avg_debut_age = mean(debut_age, na.rm = TRUE), , .groups = "drop") 
+
+# Plot
+plot <- ggplot(data, aes(x = genre, y = avg_debut_age, group = artist_type, color = artist_type)) +
+  geom_line(linewidth = 1) +  
+  geom_point(size = 3) +  
+  labs(title = "Average Debut Age of Group vs. Solo Artists Across Genres", 
+       x = "Genre", y = "Average Debut Age", color = "Artist Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, size = 14),
+        panel.grid.minor = element_blank(), 
+        legend.position = "top") +
+  scale_y_continuous(limits = c(15, 50), 
+                     breaks = seq(15, 50, by = 5)) +
+  scale_color_manual(values = c("Group" = "#638475", "Solo" = "#f6d0b1"))
+
+# Display the plot
+plot 
+```
+
+```{r}
+data <- roll_stone %>%
+  pivot_longer(cols = starts_with("rank_"),
+               names_to = "rank_year",
+               values_to = "rank") %>% 
+  filter(!is.na(rank) & !is.na(genre)) %>%
+  mutate(rank_year = str_extract(rank_year, "\\d{4}")) %>% 
+  mutate(rank_year = as.integer(rank_year)) %>% 
+  arrange(rank_year, rank)
+
+data <- data %>%
+  group_by(album) %>%
+  arrange(rank_year) %>%
+  mutate(rank_change = rank - lag(rank, default = rank[1])) 
+
+
+# Create animated line plot
+plot <- ggplot(data, aes(x = album, y = rank, color = rank_change, shape = genre)) +
+  geom_point(size = 3, alpha = 0.7) +
+  scale_color_gradient2(low = "blue", mid = "gray", high = "red", midpoint = 0) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)) + 
+  labs(title = "Album Rank Changes Over Time: {frame_time}", 
+       x = "Album", y = "Rank", color = "Rank Change", shape = "Genre") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 14),
+        panel.background = element_blank(),
+        plot.background = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        ) +
+  transition_time(rank_year) +  
+  ease_aes('linear')  
+
+# Display animation
+animate(plot, fps = 10, duration = 8, width = 900, height = 600, renderer = gifski_renderer())
+```
