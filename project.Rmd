@@ -7,7 +7,7 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute
 
 ```{r}
 # Define the required libraries
-libs <- c("tidyverse", "ggtext", "patchwork", "cowplot", "gridExtra", "lubridate", "ggthemes", "tm", "SnowballC", "wordcloud", "RColorBrewer", "RCurl", "XML", "tidytext", "viridis")
+libs <- c("tidyverse", "ggtext", "patchwork", "cowplot", "gridExtra", "lubridate", "ggthemes", "tm", "SnowballC", "wordcloud", "RColorBrewer", "RCurl", "XML", "tidytext", "viridis", "pals")
 
 
 # Check if libraries are installed; install missing ones
@@ -35,6 +35,7 @@ library(RColorBrewer)
 library(RCurl)
 library(NLP)
 library(XML)
+library(pals)
 library(viridis)
 library(gganimate)   # Animations for ggplot
 library(transformr)  # Helps with transitions
@@ -85,11 +86,11 @@ head(roll_stone)
 
 ```
 
-At first we need to remove rows where genre is NA and group by genre. After doing this, we need to find average from column spotify_popularity. The range is 0 - 100 and the buggest the number, more popular the album is.
+### **Top genres by average Spotify popularity**
+
+At first we need to remove rows where genre is NA and group by genre. After doing this, we need to find average from column spotify_popularity. The range is 0 - 100 and the buggest the number, more popular the album is. So the most popular are Latin albums
 
 ```{r}
-# top genres by avg spotify popularity
-
 roll_stone %>%
   filter(!is.na(genre)) %>%
   group_by(genre) %>%
@@ -97,11 +98,11 @@ roll_stone %>%
   arrange(desc(avg_popularity))
 ```
 
-At first we need to calculate average age of artists at the moment of debut. After that we filter the data, so that we only take bands, which has genre. We group by genre and find average value.
+### Average age of band members for each genre at the moment of debut
+
+At first we need to calculate average age of artists at the moment of debut. After that we filter the data, so that we only take bands, which has genre. We group by genre and find average value. Groups with the youngest members are in Rock N' Roll/Rhythm & Blues and the oldest in Latin.
 
 ```{r}
-# average age of band members for each genre at the moment of debut
-
 roll_stone %>%
   mutate(avg_age = (release_year - (artist_birth_year_sum / artist_member_count))) %>%
   filter(artist_member_count > 1 & !is.na(genre)) %>% 
@@ -110,11 +111,11 @@ roll_stone %>%
   arrange(desc(avg_band_age)) 
 ```
 
-To count the numbers of albums in each rank by genre we needed to transform columns like "rank_2003" to longer data. Name of the column transformed to "rank_year" and vaues were added to column "rank". After that we needed to filter out genres and rank, group by it and summarize.
+### Number of albums from each genre in each rank 
+
+To count the numbers of albums in each rank by genre we needed to transform columns like "rank_2003" to longer data. Name of the column transformed to "rank_year" and values were added to column "rank". After that we needed to filter out genres and rank, group by it and summarize.
 
 ```{r}
-# number of albums from each genre in each rank
-
 number_of_albums_from_each_genre_in_each_rank <- roll_stone %>%
     pivot_longer(cols = starts_with("rank_"),
                names_to = "rank_year",
@@ -126,15 +127,23 @@ number_of_albums_from_each_genre_in_each_rank <- roll_stone %>%
 number_of_albums_from_each_genre_in_each_rank
 ```
 
+### Heatmap of number of albums from each genre in each rank
+
+We are using previously calculated *number_of_albums_from_each_genre_in_each_rank* an vizualyzing it in a heatmap
+
 ```{r}
-# heatmap of rank distribution by genre and year
+selected_colors <- c(stepped(20)[3], stepped(20)[11], stepped(20)[19])
+
 
 ggplot(number_of_albums_from_each_genre_in_each_rank,
        aes(x = rank_year, y = genre, fill = album_count)) +
   
   geom_tile(color = "white", linewidth = 0.5) +
-  scale_fill_distiller(palette = "BuPu", name = "Album Count", direction = 1, 
-                       breaks = seq(0, max(number_of_albums_from_each_genre_in_each_rank$album_count) - 10, by = 10)) +
+  scale_fill_gradientn(
+    colors = selected_colors,
+    name = "Album Count",
+    breaks = seq(0, max(number_of_albums_from_each_genre_in_each_rank$album_count) - 10, by = 10)
+  ) +
   theme_minimal() +
   labs(title = "Number of Albums in Ranking",
        x = "Ranking Year",
@@ -144,9 +153,11 @@ ggplot(number_of_albums_from_each_genre_in_each_rank,
         legend.position = "right")
 ```
 
-```{r}
-# word cloud
+### Word cloud of the most used words
 
+We are selecting names of the albums, tokenizing it, removing articles and other words that don't have meaning and then using function *worldcloud*, which does the vizualization. The most common word is love.
+
+```{r}
 album_words <- roll_stone %>%
   select(album) %>% 
   tidytext::unnest_tokens(word, album) %>%  
@@ -156,31 +167,35 @@ album_words <- roll_stone %>%
 album_words %>%
   arrange(desc(n)) %>% print()
 
+selected_colors <- c(stepped(20)[9], stepped(20)[10], stepped(20)[13], stepped(20)[14], stepped(20)[17], stepped(20)[18])
+
 wordcloud(
   words = album_words$word, 
   freq = album_words$n, 
   min.freq = 4,
   max.words = 50,
   random.order = FALSE,
-  colors = brewer.pal(8, "Reds")
+  colors = selected_colors
 )
 ```
 
+### Top 10 albums which gained the most places from 2003 to 2020
+
+At first we need to filter the albums that aren't in 2003 or 2020 rankings. After we arrange them by *differential* and choose top 10
+
 ```{r}
-# peak position by genre
 roll_stone %>%
   filter(!is.na(rank_2003) & !is.na(rank_2020)) %>%
   arrange(desc(differential)) %>% 
   select(clean_name, album, rank_2003, rank_2020, differential) %>%
   slice_head(n = 10)
-top_improved
-
-
 ```
 
-```{r}
-# top 10 albums that improved the most (positive) and dropped the most (negative)
+### Top 10 albums that improved the most (positive) and dropped the most (negative)
 
+At first we need to filter the albums that aren't in 2003 or 2020 rankings. After we arrange them by *differential* ascending or descending and choose top 10.
+
+```{r}
 top_improved <- roll_stone %>%
   filter(!is.na(rank_2003) & !is.na(rank_2020)) %>%
   arrange(desc(differential)) %>% 
@@ -194,32 +209,44 @@ top_dropped <- roll_stone %>%
   select(clean_name, album, rank_2003, rank_2020, differential) %>%
   slice_head(n = 10)
 top_dropped
-
 ```
 
-```{r}
-# sth abt albums w numbers/special chars in name (% of all albums) in top charts
+### Which percent of the albums in top charts have special characters in their name?
 
+At first, we need to define special characters. We decided not to add here dot or comma, since they are quite common. Then we count with function *grepl* how many albums have special characters in their name and divide it by the number of distinct names of the albums
+
+```{r}
 special_characters <- "[!@#$%^&*()_+={}|:;\"<>?/~`\\]"
 
-roll_stone %>%
+albums_with_special_chars <- roll_stone %>%
   filter(grepl(special_characters, album)) %>%
-  select(album)             
+  select(album)
+
+num_special_char_albums <- nrow(albums_with_special_chars)
+
+total_albums <- nrow(roll_stone %>% distinct(album))
+
+percentage_special_char_albums <- (num_special_char_albums / total_albums) * 100
+
+num_special_char_albums
+percentage_special_char_albums
 ```
 
+# Albums that placed in top 25 in all three years
+
+Here we choose albums that were ranked in top 25 in all three rankings
+
 ```{r}
-# albums that placed in top 25 in all three years
 roll_stone %>%
   filter(rank_2003 <= 25 & rank_2012 <= 25 & rank_2020 <= 25) %>%
   select(clean_name, album, genre, rank_2003, rank_2012, rank_2020)
-
 ```
 
-## **Vizualizations**
+### Average Age by Genre and Artist Gender in 2003
+
+At first we need to filter the data, remove NA records from genre and artist gender. After that we calculate average birth_year fo artists for groups and take exact birth year for solo artists and calculate age in 2003. Then we group it by genre and artist gender and calculate average age for each gender and genre. For some genres there aren't any female artists or groups that have both female and male members. We can see that usually age of the female artists is lower in almost all genres.
 
 ```{r}
-current_year <- 2025
-
 average_birthyear_by_genre_gender <- roll_stone %>%
   filter(!is.na(artist_gender) & !is.na(genre)) %>%
   mutate(birth_year = ifelse(artist_member_count > 1,
@@ -232,34 +259,26 @@ average_birthyear_by_genre_gender <- roll_stone %>%
             average_age = mean(age, na.rm = TRUE),  
             .groups = "drop")
 
-# Print the result
-print(average_birthyear_by_genre_gender)
-
-
-ggplot(average_birthyear_by_genre_gender, aes(x = genre, y = average_age, fill = artist_gender)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  labs(title = "Average Age by Genre and Artist Gender",
-       x = "Genre", y = "Average Age") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  scale_fill_manual(values = c("Female" = "lightpink", 
-                               "Male" = "lightblue", 
-                               "Male/Female" = "lightgreen"))
-
+selected_colors <- c(stepped(20)[3], stepped(20)[15], stepped(20)[11])
 
 ggplot(average_birthyear_by_genre_gender, aes(x = genre, y = average_age, color = artist_gender, group = artist_gender)) +
   geom_line(linewidth = 1) + 
-  geom_point(size = 4) +  
-  scale_color_manual(values = c("Female" = "lightpink", "Male" = "lightblue", "Male/Female" = "lightgreen")) + 
-  labs(title = "Average Age by Genre and Artist Gender",
+  geom_point(size = 4) +
+  labs(title = "Average Age by Genre and Artist Gender in 2003",
        x = "Genre",
        y = "Average Age",
        color = "Artist Gender") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major = element_line(color = "gray80")) +
+  scale_y_continuous(limits = c(20, 80), breaks = seq(20, 80, by = 10)) +
+  scale_color_manual(values = selected_colors)
 ```
+
+### Correlation Between Average Birth Year and Rank by Year and Genre
+
+At first we need to filter the data, remove NA records from genre and artist gender. After that we calculate average birth_year fo artists for groups and take exact birth year for solo artists. We need to make longer data, so that we can implement the plot. Names go to *rank_year* and values to *rank.* Then we need to filter again, remove NA records if exist for birth_year and rank. We can see that a lot of artists were born in 1940-1950 years, which makes sense, since there was a "baby boom" after the II World War.
 
 ```{r}
 debut_age_rank_data <- roll_stone %>%
@@ -274,7 +293,7 @@ debut_age_rank_data <- roll_stone %>%
   mutate(rank_year = gsub("rank_", "", rank_year))
 
 plot <- ggplot(debut_age_rank_data, aes(x = rank, y = birth_year)) +
-  geom_point(alpha = 0.5, size = 3, aes(color = genre)) +
+  geom_point(alpha = 0.7, size = 3, aes(color = genre)) +
   labs(title = "Correlation Between Average Birth Year and Rank by Year and Genre",
        x = "Rank",
        y = "Average Birth Year",
@@ -282,9 +301,7 @@ plot <- ggplot(debut_age_rank_data, aes(x = rank, y = birth_year)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
   facet_wrap(~rank_year, scales = "fixed") + 
-  scale_color_manual(values = c("#1E90FF", "#FF69B4", "#32CD32", "#FFA500", "#8A2BE2", 
-  "#FFD700", "#B22222", "#40E0D0", "#808080", "#DC143C", 
-  "#20B2AA", "#FF8C00", "#9932CC", "#4682B4", "#ADFF2F")) +
+  scale_color_manual(values = stepped(15)) +  # Use 15 colors from the stepped palette
   scale_y_continuous(limits = c(1910, 2000), 
                      breaks = seq(1910, 2000, by = 10)) +  
   scale_x_continuous(breaks = seq(0, 500, by = 100)) +
@@ -295,17 +312,20 @@ plot
 ggsave("larger_graph.jpg", plot = plot, width = 16, height = 10, dpi = 300)
 ```
 
+### Spotify Presence by Genre
+
+We decided to see how many artists from different genres doesn't have Spotify (we thought that everyone has). So we created additional column *has_spotify*, grouped by it and genre, summarized and added percentage. Donut charts are very helpful in showing such information, so we decided to use them.
+
 ```{r}
-# Prepare the data
 spotify_analysis <- roll_stone %>%
   filter(!is.na(genre)) %>% 
   mutate(has_spotify = ifelse(!is.na(spotify_url), "Has Spotify", "No Spotify")) %>%
   group_by(genre, has_spotify) %>%
-  summarise(album_count = n(), .groups = "drop") %>%  
-  group_by(genre) %>%
-  mutate(percent = album_count / sum(album_count) * 100) 
+  summarise(album_count = n(), .groups = "drop") %>%
+  mutate(percent = album_count / sum(album_count) * 100, .by = genre)
 
-# Create the donut chart
+
+selected_colors <- c(stepped(20)[19], stepped(20)[20])
 plot <- ggplot(spotify_analysis, aes(x = 2, y = percent, fill = has_spotify)) +
   geom_bar(stat = "identity") +
   coord_polar(theta = "y") +
@@ -321,14 +341,17 @@ plot <- ggplot(spotify_analysis, aes(x = 2, y = percent, fill = has_spotify)) +
         strip.text = element_text(size = 10, face = "bold"),
         plot.title = element_text(hjust = 0.5, size = 14)) +
   xlim(1.5, 2.5) + xlim(0.5, 2.5) +
-  scale_fill_brewer(palette = 2)
+  scale_fill_manual(values = selected_colors)
 plot
 
 ggsave("larger_graph.jpg", plot = plot, width = 16, height = 10, dpi = 300)
 ```
 
-```{r}
+### Average Debut Age of Group vs. Solo Artists Across Genres
 
+At first we need to filter the data, remove NA records from genre and artist gender. After that we calculate average birth_year fo artists for groups and take exact birth year for solo artists, calculate debut_age, add new column Solo/Group, group by genre and artist type and find average debut age. Usually, it's pretty similar, but in Latin average age for group is the highest one compared to all other genres and artist types.
+
+```{r}
 data <- roll_stone %>% 
   filter(!is.na(genre) & !is.na(artist_gender)) %>% 
   mutate(birth_year = ifelse(artist_member_count > 1,
@@ -339,7 +362,8 @@ data <- roll_stone %>%
   group_by(genre, artist_type) %>% 
   summarise(avg_debut_age = mean(debut_age, na.rm = TRUE), , .groups = "drop") 
 
-# Plot
+selected_colors <- c(stepped(20)[16], stepped(20)[8])
+
 plot <- ggplot(data, aes(x = genre, y = avg_debut_age, group = artist_type, color = artist_type)) +
   geom_line(linewidth = 1) +  
   geom_point(size = 3) +  
@@ -352,11 +376,14 @@ plot <- ggplot(data, aes(x = genre, y = avg_debut_age, group = artist_type, colo
         legend.position = "top") +
   scale_y_continuous(limits = c(15, 50), 
                      breaks = seq(15, 50, by = 5)) +
-  scale_color_manual(values = c("Group" = "#638475", "Solo" = "#f6d0b1"))
+  scale_color_manual(values = selected_colors)
 
-# Display the plot
 plot 
 ```
+
+### Album Rank Changes Over Time
+
+At first we reshape the data and filter out missing values for rank and genre. After that, we calculate how much each album’s rank changes over time by comparing its position to the previous year’s rank. Finally, we create an animated plot showing the rank changes for each album, with colors representing the change and shapes showing the genre, using a custom stepped color palette for the ranks.
 
 ```{r}
 data <- roll_stone %>%
@@ -374,10 +401,9 @@ data <- data %>%
   mutate(rank_change = rank - lag(rank, default = rank[1])) 
 
 
-# Create animated line plot
 plot <- ggplot(data, aes(x = album, y = rank, color = rank_change, shape = genre)) +
-  geom_point(size = 3, alpha = 0.7) +
-  scale_color_gradient2(low = "blue", mid = "gray", high = "red", midpoint = 0) +
+  geom_point(size = 3) +
+  scale_color_gradient2(low = stepped(24)[1], mid = stepped(24)[24], high = stepped(24)[13], midpoint = 0) +
   scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)) + 
   labs(title = "Album Rank Changes Over Time: {frame_time}", 
        x = "Album", y = "Rank", color = "Rank Change", shape = "Genre") +
@@ -392,6 +418,5 @@ plot <- ggplot(data, aes(x = album, y = rank, color = rank_change, shape = genre
   transition_time(rank_year) +  
   ease_aes('linear')  
 
-# Display animation
 animate(plot, fps = 10, duration = 8, width = 900, height = 600, renderer = gifski_renderer())
 ```
